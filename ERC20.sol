@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity >=0.7.0 <=0.8.3;
+pragma solidity >=0.7.0 <=0.8.7;
 
 import "./IERC20.sol";
 import "./Context.sol";
-import "./Owner.sol";
+import "./Owners.sol";
 import "./SafeMath.sol";
 
 /**
@@ -30,7 +30,7 @@ import "./SafeMath.sol";
  * functions have been added to mitigate the well-known issues around setting
  * allowances. See {IERC20-approve}.
  */
-contract ERC20 is Context, IERC20, Owner {
+contract ERC20 is Context, IERC20, Owners {
     using SafeMath for uint256;
 
     mapping(address => uint256) private _balances;
@@ -38,23 +38,18 @@ contract ERC20 is Context, IERC20, Owner {
     mapping(address => mapping(address => uint256)) private _allowances;
 
     uint256 private _totalSupply;
+    uint8 private _decimals;
 
     string private _name;
     string private _symbol;
 
-    uint256 private _rate;
-    address payable private _ethWallet;
     address private _burnWallet;
-    address private _tokenWallet;
-    bool private _isActiveEthRecive = false;
 
     /**
      * @dev Sets the values for {name} and {symbol}.
      *
-     * The defaut value of {decimals} is 18. To select a different value for
-     * {decimals} you should overload it.
      *
-     * All three of these values are immutable: they can only be set once during
+     * All these values are immutable: they can only be set once during
      * construction.
      */
     constructor(string memory name_, string memory symbol_) {
@@ -65,7 +60,7 @@ contract ERC20 is Context, IERC20, Owner {
     /**
      * @dev Returns the name of the token.
      */
-    function name() public view virtual returns (string memory) {
+    function name() external view virtual returns (string memory) {
         return _name;
     }
 
@@ -73,96 +68,14 @@ contract ERC20 is Context, IERC20, Owner {
      * @dev Returns the symbol of the token, usually a shorter version of the
      * name.
      */
-    function symbol() public view virtual returns (string memory) {
+    function symbol() external view virtual returns (string memory) {
         return _symbol;
     }
 
     /**
      * @dev Returns wallet where will receive ethers.
      */
-    function ethWallet() public view virtual returns (address) {
-        return _ethWallet;
-    }
-
-    /**
-     * @dev Set wallet where will receive ethers.
-     *
-     */
-    function setEthWallet(address ethWallet_)
-        external
-        onlyOwner
-        returns (address)
-    {
-        require(ethWallet_ != address(0));
-        _ethWallet = payable(address(ethWallet_));
-        return _ethWallet;
-    }
-
-    /**
-     * @dev Ethers recive is activate or not.
-     *
-     */
-    function isActiveEthRecive() public view virtual returns (bool) {
-        return _isActiveEthRecive;
-    }
-
-    /**
-     * @dev Set isActiveEthRecive function.
-     *
-     */
-    function setIsActiveEthRecive(bool isActiveEthRecive_)
-        external
-        onlyOwner
-        returns (bool)
-    {
-        _isActiveEthRecive = isActiveEthRecive_;
-        return _isActiveEthRecive;
-    }
-
-    /**
-     * @dev Returns wallet from which will send tokens.
-     *
-     */
-    function tokenWallet() public view virtual returns (address) {
-        return _tokenWallet;
-    }
-
-    /**
-     * @dev Set wallet from which will send tokens.
-     *
-     */
-    function setTokenWallet(address tokenWallet_)
-        external
-        onlyOwner
-        returns (address)
-    {
-        require(tokenWallet_ != address(0));
-        _tokenWallet = tokenWallet_;
-        return _tokenWallet;
-    }
-
-    /**
-     * @dev Returns rate.
-     *
-     */
-    function rate() public view virtual returns (uint256) {
-        return _rate;
-    }
-
-    /**
-     * @dev Set rate.
-     *
-     */
-    function setRate(uint256 rate_) external onlyOwner returns (uint256) {
-        require(rate_ > 0, "Rate should be greater than 0");
-        _rate = rate_;
-        return _rate;
-    }
-
-    /**
-     * @dev Returns wallet where will receive ethers.
-     */
-    function burnWallet() public view virtual returns (address) {
+    function burnWallet() external view virtual returns (address) {
         return _burnWallet;
     }
 
@@ -179,14 +92,14 @@ contract ERC20 is Context, IERC20, Owner {
      * no way affects any of the arithmetic of the contract, including
      * {IERC20-balanceOf} and {IERC20-transfer}.
      */
-    function decimals() public view virtual returns (uint8) {
-        return 18;
+    function decimals() external view virtual returns (uint8) {
+        return _decimals;
     }
 
     /**
      * @dev See {IERC20-totalSupply}.
      */
-    function totalSupply() public view virtual override returns (uint256) {
+    function totalSupply() external view virtual override returns (uint256) {
         return _totalSupply;
     }
 
@@ -194,7 +107,7 @@ contract ERC20 is Context, IERC20, Owner {
      * @dev See {IERC20-balanceOf}.
      */
     function balanceOf(address account)
-        public
+        external
         view
         virtual
         override
@@ -212,7 +125,7 @@ contract ERC20 is Context, IERC20, Owner {
      * - the caller must have a balance of at least `amount`.
      */
     function transfer(address recipient, uint256 amount)
-        public
+        external
         virtual
         override
         returns (bool)
@@ -225,7 +138,7 @@ contract ERC20 is Context, IERC20, Owner {
      * @dev See {IERC20-allowance}.
      */
     function allowance(address owner, address spender)
-        public
+        external
         view
         virtual
         override
@@ -242,7 +155,7 @@ contract ERC20 is Context, IERC20, Owner {
      * - `spender` cannot be the zero address.
      */
     function approve(address spender, uint256 amount)
-        public
+        external
         virtual
         override
         returns (bool)
@@ -268,7 +181,7 @@ contract ERC20 is Context, IERC20, Owner {
         address sender,
         address recipient,
         uint256 amount
-    ) public virtual override returns (bool) {
+    ) external virtual override returns (bool) {
         _transfer(sender, recipient, amount);
 
         uint256 currentAllowance = _allowances[sender][_msgSender()];
@@ -294,7 +207,7 @@ contract ERC20 is Context, IERC20, Owner {
      * - `spender` cannot be the zero address.
      */
     function increaseAllowance(address spender, uint256 addedValue)
-        public
+        external
         virtual
         returns (bool)
     {
@@ -321,7 +234,7 @@ contract ERC20 is Context, IERC20, Owner {
      * `subtractedValue`.
      */
     function decreaseAllowance(address spender, uint256 subtractedValue)
-        public
+        external
         virtual
         returns (bool)
     {
@@ -380,53 +293,20 @@ contract ERC20 is Context, IERC20, Owner {
      * - `to` cannot be the zero address.
      */
     function _mint(
-        address account,
         uint256 amount,
-        uint256 rate_,
-        address ethWallet_,
-        address tokenWallet_,
+        uint8 decimals_,
         address burnWallet_
     ) internal virtual {
-        require(account != address(0), "ERC20: mint to the zero address");
+        require(_msgSender() != address(0), "ERC20: mint to the zero address");
         require(amount > 0, "Amount should be greater than 0");
-        require(rate_ > 0, "Rate should be greater than 0");
-        require(ethWallet_ != address(0), "Eth Wallet is not valid");
-        require(tokenWallet_ != address(0), "Token Wallet is not valid");
-
-        _beforeTokenTransfer(address(0), account, amount);
+        _beforeTokenTransfer(address(0), _msgSender(), amount);
 
         _totalSupply += amount;
-        _balances[account] += amount;
-        _rate = rate_;
-        _ethWallet = payable(address(ethWallet_));
-        _tokenWallet = tokenWallet_;
+        _balances[_msgSender()] += amount;
+        _decimals = decimals_;
         _burnWallet = burnWallet_;
 
-        emit Transfer(address(0), account, amount);
-    }
-
-    /**
-     * @dev Destroys `amount` tokens from `account`, reducing the
-     * total supply.
-     *
-     * Emits a {Transfer} event with `to` set to the zero address.
-     *
-     * Requirements:
-     *
-     * - `account` cannot be the zero address.
-     * - `account` must have at least `amount` tokens.
-     */
-    function _burn(address account, uint256 amount) internal virtual {
-        require(account != address(0), "ERC20: burn from the zero address");
-
-        _beforeTokenTransfer(account, address(0), amount);
-
-        uint256 accountBalance = _balances[account];
-        require(accountBalance >= amount, "ERC20: burn amount exceeds balance");
-        _balances[account] = accountBalance - amount;
-        _totalSupply -= amount;
-
-        emit Transfer(account, address(0), amount);
+        emit Transfer(address(0), _msgSender(), amount);
     }
 
     /**
@@ -455,6 +335,308 @@ contract ERC20 is Context, IERC20, Owner {
     }
 
     /**
+     * @dev Increase totalsupply by adding {amount} - will be received to {receiver}
+     *
+     * - `amount` mmount to increase.
+     */
+    function increaseSupply(uint256 amount) internal onlyOwners {
+        require(amount > 0, "Amount should be greater than 0");
+
+        _totalSupply += amount;
+        _balances[receiver()] += amount;
+
+        emit Transfer(address(0), receiver(), amount);
+    }
+
+    /**
+     * @dev Decrease totalsupply by removing {amount} from burn wallet
+     *
+     * - `amount` mmount to decrease.
+     */
+    function decreaseSupply(uint256 amount) internal onlyOwners {
+        require(amount > 0, "Amount should be greater than 0");
+        require(
+            _balances[_burnWallet] >= amount,
+            "ERC20: burn amount exceeds balance"
+        );
+
+        _balances[_burnWallet] -= amount;
+        _totalSupply -= amount;
+
+        emit Transfer(_burnWallet, address(0), amount);
+    }
+
+    /**
+     * @dev Create increase supply transaction
+     *
+     * - `amount` mmount to increase.
+     * - `description` some information about event.
+     */
+    function increaseSupplyTransaction(
+        uint256 amount,
+        string memory description
+    ) external payable onlyOwners returns (TransactionIncreaseSupply memory t) {
+        require(amount > 0, "Amount should be greater than 0");
+        uint256 index = increaseSupplyIndex;
+        increaseSupplyTransactions[index] = TransactionIncreaseSupply(
+            false,
+            amount,
+            index,
+            description,
+            block.timestamp
+        );
+        increaseSupplyConfirmations[index].push(_msgSender());
+        nonConfirmedIncreaseSupplyTransactions.push(
+            increaseSupplyTransactions[index]
+        );
+        increaseSupplyIndex++;
+        return increaseSupplyTransactions[index];
+    }
+
+    /**
+     * @dev Confirm increase supply transaction by index
+     *
+     * - `index` index of transaction.
+     */
+    function increaseSupplyConfirmTransaction(uint256 index)
+        external
+        payable
+        onlyOwners
+        returns (bool b)
+    {
+        require(
+            increaseSupplyConfirmations[index].length > 0,
+            "Transaction not exists"
+        );
+        bool exists = false;
+        address[] memory addrs = increaseSupplyConfirmations[index];
+        for (uint256 i = 0; i < addrs.length; i++) {
+            address addr = addrs[i];
+
+            if (addr == _msgSender()) {
+                exists = true;
+                break;
+            }
+        }
+        require(exists == false, "The owner has confirmed the transaction");
+        increaseSupplyConfirmations[index].push(_msgSender());
+        increaseSupplyTransactions[index].time = block.timestamp;
+        return true;
+    }
+
+    /**
+     * @dev Execute increase supply transaction by index
+     *
+     * - `index` index of transaction.
+     */
+    function increaseSupplyExecute(uint256 index)
+        external
+        payable
+        onlyOwners
+        returns (bool b)
+    {
+        require(
+            increaseSupplyConfirmations[index].length >= owners().length,
+            "Transaction not confirmed!"
+        );
+
+        increaseSupplyRemoveTransactionExecute(index);
+        increaseSupply(increaseSupplyTransactions[index].increase);
+        return true;
+    }
+
+    /**
+     * @dev Delete increase supply transaction by index
+     *
+     * - `index` index of transaction.
+     */
+    function increaseSupplyRemoveTransaction(uint256 index)
+        external
+        payable
+        onlyOwners
+        returns (bool b)
+    {
+        require(
+            increaseSupplyConfirmations[index].length >= 0,
+            "Transaction not confirmed!"
+        );
+
+        return increaseSupplyRemoveTransactionExecute(index);
+    }
+
+    /**
+     * @dev Delete increase supply transaction by index
+     *
+     * - `index` index of transaction.
+     */
+    function increaseSupplyRemoveTransactionExecute(uint256 index)
+        internal
+        onlyOwners
+        returns (bool b)
+    {
+        TransactionIncreaseSupply memory t = increaseSupplyTransactions[index];
+
+        require(t.executed == false, "Transaction has been executed!");
+
+        increaseSupplyTransactions[index].executed = true;
+
+        for (
+            uint256 i = 0;
+            i < nonConfirmedIncreaseSupplyTransactions.length;
+            i++
+        ) {
+            TransactionIncreaseSupply
+                memory tr = nonConfirmedIncreaseSupplyTransactions[i];
+            if (tr.index == index) {
+                nonConfirmedIncreaseSupplyTransactions[
+                    i
+                ] = nonConfirmedIncreaseSupplyTransactions[
+                    nonConfirmedIncreaseSupplyTransactions.length - 1
+                ];
+                nonConfirmedIncreaseSupplyTransactions.pop();
+                break;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @dev Create decrease supply transaction
+     *
+     * - `amount` amount to decrease.
+     * - `description` some information about event.
+     */
+    function decreaseSupplyTransaction(
+        uint256 amount,
+        string memory description
+    ) external payable onlyOwners returns (TransactionDecreaseSupply memory t) {
+        require(amount > 0, "Amount should be greater than 0");
+        uint256 index = decreaseSupplyIndex;
+        decreaseSupplyTransactions[index] = TransactionDecreaseSupply(
+            false,
+            amount,
+            index,
+            description,
+            block.timestamp
+        );
+        decreaseSupplyConfirmations[index].push(_msgSender());
+        nonConfirmedDecreaseSupplyTransactions.push(
+            decreaseSupplyTransactions[index]
+        );
+        decreaseSupplyIndex++;
+        return decreaseSupplyTransactions[index];
+    }
+
+    /**
+     * @dev Confirm decrease supply transaction by index
+     *
+     * - `index` index of transaction.
+     */
+    function decreaseSupplyConfirmTransaction(uint256 index)
+        external
+        payable
+        onlyOwners
+        returns (bool b)
+    {
+        require(
+            decreaseSupplyConfirmations[index].length > 0,
+            "Transaction not exists"
+        );
+        bool exists = false;
+        address[] memory addrs = decreaseSupplyConfirmations[index];
+        for (uint256 i = 0; i < addrs.length; i++) {
+            address addr = addrs[i];
+
+            if (addr == _msgSender()) {
+                exists = true;
+                break;
+            }
+        }
+        require(exists == false, "The owner has confirmed the transaction");
+        decreaseSupplyConfirmations[index].push(_msgSender());
+        decreaseSupplyTransactions[index].time = block.timestamp;
+        return true;
+    }
+
+    /**
+     * @dev Execute decrease supply transaction by index
+     *
+     * - `index` index of transaction.
+     */
+    function decreaseSupplyExecute(uint256 index)
+        external
+        payable
+        onlyOwners
+        returns (bool b)
+    {
+        require(
+            decreaseSupplyConfirmations[index].length >= owners().length,
+            "Transaction not confirmed!"
+        );
+
+        decreaseSupplyRemoveTransactionExecute(index);
+        decreaseSupply(decreaseSupplyTransactions[index].decrease);
+        return true;
+    }
+
+    /**
+     * @dev Delete decrease supply transaction by index
+     *
+     * - `index` index of transaction.
+     */
+    function decreaseSupplyRemoveTransaction(uint256 index)
+        external
+        payable
+        onlyOwners
+        returns (bool b)
+    {
+        require(
+            decreaseSupplyConfirmations[index].length >= 0,
+            "Transaction not confirmed!"
+        );
+
+        return decreaseSupplyRemoveTransactionExecute(index);
+    }
+
+    /**
+     * @dev Delete decrease supply transaction by index
+     *
+     * - `index` index of transaction.
+     */
+    function decreaseSupplyRemoveTransactionExecute(uint256 index)
+        internal
+        onlyOwners
+        returns (bool b)
+    {
+        TransactionDecreaseSupply memory t = decreaseSupplyTransactions[index];
+
+        require(t.executed == false, "Transaction has been executed!");
+
+        decreaseSupplyTransactions[index].executed = true;
+
+        for (
+            uint256 i = 0;
+            i < nonConfirmedDecreaseSupplyTransactions.length;
+            i++
+        ) {
+            TransactionDecreaseSupply
+                memory tr = nonConfirmedDecreaseSupplyTransactions[i];
+            if (tr.index == index) {
+                nonConfirmedDecreaseSupplyTransactions[
+                    i
+                ] = nonConfirmedDecreaseSupplyTransactions[
+                    nonConfirmedDecreaseSupplyTransactions.length - 1
+                ];
+                nonConfirmedDecreaseSupplyTransactions.pop();
+                break;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * @dev Hook that is called before any transfer of tokens. This includes
      * minting and burning.
      *
@@ -474,58 +656,24 @@ contract ERC20 is Context, IERC20, Owner {
         uint256 amount
     ) internal virtual {}
 
-    receive() external payable {
-        require(_isActiveEthRecive == true);
-        require(msg.sender != address(0));
-        require(msg.value > 0);
-        require(address(msg.sender).balance >= msg.value);
-        uint256 tokens = msg.value.mul(_rate);
-        uint256 accountBalance = _balances[_tokenWallet];
-        require(accountBalance >= tokens);
-        _balances[_tokenWallet] = accountBalance - tokens;
-        _balances[msg.sender] += tokens;
-        emit Transfer(_tokenWallet, msg.sender, tokens);
-        _ethWallet.transfer(msg.value);
-    }
+    /**
+     * @dev Destroys `amount` tokens from `account`, reducing the
+     * total supply.
+     *
+     * Emits a {Transfer} event with `to` set to the zero address.
+     *
+     * Requirements
+     *
+     * - `account` cannot be the zero address.
+     * - `account` must have at least `amount` tokens.
+     */
+    function _burn(address account, uint256 amount) internal virtual {
+        require(account != address(0), "ERC20: burn from the zero address");
 
-    function buyTokens() external payable {
-        require(_isActiveEthRecive == true);
-        require(msg.sender != address(0));
-        require(msg.value > 0);
-        require(address(msg.sender).balance >= msg.value);
+        _beforeTokenTransfer(account, address(0), amount);
 
-        uint256 tokens = msg.value.mul(_rate);
-        uint256 accountBalance = _balances[_tokenWallet];
-
-        require(accountBalance >= tokens);
-
-        _balances[_tokenWallet] = accountBalance - tokens;
-        _balances[msg.sender] += tokens;
-
-        emit Transfer(_tokenWallet, msg.sender, tokens);
-        _ethWallet.transfer(msg.value);
-    }
-
-    function withdraw() external payable onlyOwner {
-        _ethWallet.transfer(address(this).balance);
-    }
-
-    function increaseSupply(uint256 amount) external payable onlyOwner {
-        require(amount > 0, "Amount should be greater than 0");
-
-        _totalSupply += amount;
-        _balances[getOwner()] += amount;
-
-        emit Transfer(address(0), getOwner(), amount);
-    }
-
-    function decreaseSupply(uint256 amount) external payable onlyOwner {
-        require(amount > 0, "Amount should be greater than 0");
-        require( _balances[_burnWallet] >= amount, "ERC20: burn amount exceeds balance");
-
-        _balances[_burnWallet] -= amount;
-        _totalSupply -= amount;
-
-        emit Transfer(_burnWallet, address(0), amount);
+        _balances[account] = _balances[account].sub(amount);
+        _totalSupply = _totalSupply.sub(amount);
+        emit Transfer(account, address(0), amount);
     }
 }
