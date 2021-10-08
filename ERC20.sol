@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity >=0.7.0 <=0.8.7;
+pragma solidity >=0.7.0 <=0.8.9;
 
 import "./IERC20.sol";
-import "./Context.sol";
-import "./Owners.sol";
+import "./MultiSignature.sol";
 import "./SafeMath.sol";
 
 /**
@@ -30,7 +29,7 @@ import "./SafeMath.sol";
  * functions have been added to mitigate the well-known issues around setting
  * allowances. See {IERC20-approve}.
  */
-contract ERC20 is Context, IERC20, Owners {
+contract ERC20 is IERC20, MultiSignature {
     using SafeMath for uint256;
 
     mapping(address => uint256) private _balances;
@@ -52,9 +51,18 @@ contract ERC20 is Context, IERC20, Owners {
      * All these values are immutable: they can only be set once during
      * construction.
      */
-    constructor(string memory name_, string memory symbol_) {
+    constructor(
+        string memory name_,
+        string memory symbol_,
+        address burnWallet_,
+        address executor_
+    ) MultiSignature(executor_) {
+        require(burnWallet_ != address(0), "Invalid address");
+        require(executor_ != address(0), "Invalid address");
+
         _name = name_;
         _symbol = symbol_;
+        _burnWallet = burnWallet_;
     }
 
     /**
@@ -73,7 +81,7 @@ contract ERC20 is Context, IERC20, Owners {
     }
 
     /**
-     * @dev Returns wallet where will receive ethers.
+     * @dev Returns wallet for burn tokens.
      */
     function burnWallet() external view virtual returns (address) {
         return _burnWallet;
@@ -130,7 +138,7 @@ contract ERC20 is Context, IERC20, Owners {
         override
         returns (bool)
     {
-        _transfer(_msgSender(), recipient, amount);
+        _transfer(msg.sender, recipient, amount);
         return true;
     }
 
@@ -160,7 +168,7 @@ contract ERC20 is Context, IERC20, Owners {
         override
         returns (bool)
     {
-        _approve(_msgSender(), spender, amount);
+        _approve(msg.sender, spender, amount);
         return true;
     }
 
@@ -184,12 +192,12 @@ contract ERC20 is Context, IERC20, Owners {
     ) external virtual override returns (bool) {
         _transfer(sender, recipient, amount);
 
-        uint256 currentAllowance = _allowances[sender][_msgSender()];
+        uint256 currentAllowance = _allowances[sender][msg.sender];
         require(
             currentAllowance >= amount,
             "ERC20: transfer amount exceeds allowance"
         );
-        _approve(sender, _msgSender(), currentAllowance - amount);
+        _approve(sender, msg.sender, currentAllowance.sub(amount));
 
         return true;
     }
@@ -211,11 +219,9 @@ contract ERC20 is Context, IERC20, Owners {
         virtual
         returns (bool)
     {
-        _approve(
-            _msgSender(),
-            spender,
-            _allowances[_msgSender()][spender] + addedValue
-        );
+        uint256 value = _allowances[msg.sender][spender].add(addedValue);
+
+        _approve(msg.sender, spender, value);
         return true;
     }
 
@@ -238,12 +244,13 @@ contract ERC20 is Context, IERC20, Owners {
         virtual
         returns (bool)
     {
-        uint256 currentAllowance = _allowances[_msgSender()][spender];
+        uint256 currentAllowance = _allowances[msg.sender][spender];
         require(
             currentAllowance >= subtractedValue,
             "ERC20: decreased allowance below zero"
         );
-        _approve(_msgSender(), spender, currentAllowance - subtractedValue);
+        uint256 value = currentAllowance.sub(subtractedValue);
+        _approve(msg.sender, spender, value);
 
         return true;
     }
@@ -270,15 +277,13 @@ contract ERC20 is Context, IERC20, Owners {
         require(sender != address(0), "ERC20: transfer from the zero address");
         require(recipient != address(0), "ERC20: transfer to the zero address");
 
-        _beforeTokenTransfer(sender, recipient, amount);
-
         uint256 senderBalance = _balances[sender];
         require(
             senderBalance >= amount,
             "ERC20: transfer amount exceeds balance"
         );
-        _balances[sender] = senderBalance - amount;
-        _balances[recipient] += amount;
+        _balances[sender] = senderBalance.sub(amount);
+        _balances[recipient] = _balances[recipient].add(amount);
 
         emit Transfer(sender, recipient, amount);
     }
@@ -292,21 +297,15 @@ contract ERC20 is Context, IERC20, Owners {
      *
      * - `to` cannot be the zero address.
      */
-    function _mint(
-        uint256 amount,
-        uint8 decimals_,
-        address burnWallet_
-    ) internal virtual {
-        require(_msgSender() != address(0), "ERC20: mint to the zero address");
+    function _mint(uint256 amount, uint8 decimals_) internal virtual {
+        require(msg.sender != address(0), "ERC20: mint to the zero address");
         require(amount > 0, "Amount should be greater than 0");
-        _beforeTokenTransfer(address(0), _msgSender(), amount);
 
-        _totalSupply += amount;
-        _balances[_msgSender()] += amount;
+        _totalSupply = _totalSupply.add(amount);
+        _balances[msg.sender] = _balances[msg.sender].add(amount);
         _decimals = decimals_;
-        _burnWallet = burnWallet_;
 
-        emit Transfer(address(0), _msgSender(), amount);
+        emit Transfer(address(0), msg.sender, amount);
     }
 
     /**
@@ -339,13 +338,13 @@ contract ERC20 is Context, IERC20, Owners {
      *
      * - `amount` mmount to increase.
      */
-    function increaseSupply(uint256 amount) internal onlyOwners {
+    function increaseSupply(uint256 amount) internal override onlyExecutorOrOwner {
         require(amount > 0, "Amount should be greater than 0");
 
-        _totalSupply += amount;
-        _balances[receiver()] += amount;
+        _totalSupply = _totalSupply.add(amount);
+        _balances[_receiver] = _balances[_receiver].add(amount);
 
-        emit Transfer(address(0), receiver(), amount);
+        emit Transfer(address(0), _receiver, amount);
     }
 
     /**
@@ -353,327 +352,25 @@ contract ERC20 is Context, IERC20, Owners {
      *
      * - `amount` mmount to decrease.
      */
-    function decreaseSupply(uint256 amount) internal onlyOwners {
+    function decreaseSupply(uint256 amount) internal override onlyExecutorOrOwner {
         require(amount > 0, "Amount should be greater than 0");
         require(
             _balances[_burnWallet] >= amount,
             "ERC20: burn amount exceeds balance"
         );
 
-        _balances[_burnWallet] -= amount;
-        _totalSupply -= amount;
+        _balances[_burnWallet] = _balances[_burnWallet].sub(amount);
+        _totalSupply = _totalSupply.sub(amount);
 
         emit Transfer(_burnWallet, address(0), amount);
     }
 
-    /**
-     * @dev Create increase supply transaction
-     *
-     * - `amount` mmount to increase.
-     * - `description` some information about event.
-     */
-    function increaseSupplyTransaction(
-        uint256 amount,
-        string memory description
-    ) external payable onlyOwners returns (TransactionIncreaseSupply memory t) {
-        require(amount > 0, "Amount should be greater than 0");
-        uint256 index = increaseSupplyIndex;
-        increaseSupplyTransactions[index] = TransactionIncreaseSupply(
-            false,
-            amount,
-            index,
-            description,
-            block.timestamp
-        );
-        increaseSupplyConfirmations[index].push(_msgSender());
-        nonConfirmedIncreaseSupplyTransactions.push(
-            increaseSupplyTransactions[index]
-        );
-        increaseSupplyIndex++;
-        return increaseSupplyTransactions[index];
-    }
-
-    /**
-     * @dev Confirm increase supply transaction by index
-     *
-     * - `index` index of transaction.
-     */
-    function increaseSupplyConfirmTransaction(uint256 index)
-        external
-        payable
-        onlyOwners
-        returns (bool b)
-    {
-        require(
-            increaseSupplyConfirmations[index].length > 0,
-            "Transaction not exists"
-        );
-        bool exists = false;
-        address[] memory addrs = increaseSupplyConfirmations[index];
-        for (uint256 i = 0; i < addrs.length; i++) {
-            address addr = addrs[i];
-
-            if (addr == _msgSender()) {
-                exists = true;
-                break;
-            }
-        }
-        require(exists == false, "The owner has confirmed the transaction");
-        increaseSupplyConfirmations[index].push(_msgSender());
-        increaseSupplyTransactions[index].time = block.timestamp;
-        return true;
-    }
-
-    /**
-     * @dev Execute increase supply transaction by index
-     *
-     * - `index` index of transaction.
-     */
-    function increaseSupplyExecute(uint256 index)
-        external
-        payable
-        onlyOwners
-        returns (bool b)
-    {
-        require(
-            increaseSupplyConfirmations[index].length >= owners().length,
-            "Transaction not confirmed!"
-        );
-
-        increaseSupplyRemoveTransactionExecute(index);
-        increaseSupply(increaseSupplyTransactions[index].increase);
-        return true;
-    }
-
-    /**
-     * @dev Delete increase supply transaction by index
-     *
-     * - `index` index of transaction.
-     */
-    function increaseSupplyRemoveTransaction(uint256 index)
-        external
-        payable
-        onlyOwners
-        returns (bool b)
-    {
-        require(
-            increaseSupplyConfirmations[index].length >= 0,
-            "Transaction not confirmed!"
-        );
-
-        return increaseSupplyRemoveTransactionExecute(index);
-    }
-
-    /**
-     * @dev Delete increase supply transaction by index
-     *
-     * - `index` index of transaction.
-     */
-    function increaseSupplyRemoveTransactionExecute(uint256 index)
-        internal
-        onlyOwners
-        returns (bool b)
-    {
-        TransactionIncreaseSupply memory t = increaseSupplyTransactions[index];
-
-        require(t.executed == false, "Transaction has been executed!");
-
-        increaseSupplyTransactions[index].executed = true;
-
-        for (
-            uint256 i = 0;
-            i < nonConfirmedIncreaseSupplyTransactions.length;
-            i++
-        ) {
-            TransactionIncreaseSupply
-                memory tr = nonConfirmedIncreaseSupplyTransactions[i];
-            if (tr.index == index) {
-                nonConfirmedIncreaseSupplyTransactions[
-                    i
-                ] = nonConfirmedIncreaseSupplyTransactions[
-                    nonConfirmedIncreaseSupplyTransactions.length - 1
-                ];
-                nonConfirmedIncreaseSupplyTransactions.pop();
-                break;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * @dev Create decrease supply transaction
-     *
-     * - `amount` amount to decrease.
-     * - `description` some information about event.
-     */
-    function decreaseSupplyTransaction(
-        uint256 amount,
-        string memory description
-    ) external payable onlyOwners returns (TransactionDecreaseSupply memory t) {
-        require(amount > 0, "Amount should be greater than 0");
-        uint256 index = decreaseSupplyIndex;
-        decreaseSupplyTransactions[index] = TransactionDecreaseSupply(
-            false,
-            amount,
-            index,
-            description,
-            block.timestamp
-        );
-        decreaseSupplyConfirmations[index].push(_msgSender());
-        nonConfirmedDecreaseSupplyTransactions.push(
-            decreaseSupplyTransactions[index]
-        );
-        decreaseSupplyIndex++;
-        return decreaseSupplyTransactions[index];
-    }
-
-    /**
-     * @dev Confirm decrease supply transaction by index
-     *
-     * - `index` index of transaction.
-     */
-    function decreaseSupplyConfirmTransaction(uint256 index)
-        external
-        payable
-        onlyOwners
-        returns (bool b)
-    {
-        require(
-            decreaseSupplyConfirmations[index].length > 0,
-            "Transaction not exists"
-        );
-        bool exists = false;
-        address[] memory addrs = decreaseSupplyConfirmations[index];
-        for (uint256 i = 0; i < addrs.length; i++) {
-            address addr = addrs[i];
-
-            if (addr == _msgSender()) {
-                exists = true;
-                break;
-            }
-        }
-        require(exists == false, "The owner has confirmed the transaction");
-        decreaseSupplyConfirmations[index].push(_msgSender());
-        decreaseSupplyTransactions[index].time = block.timestamp;
-        return true;
-    }
-
-    /**
-     * @dev Execute decrease supply transaction by index
-     *
-     * - `index` index of transaction.
-     */
-    function decreaseSupplyExecute(uint256 index)
-        external
-        payable
-        onlyOwners
-        returns (bool b)
-    {
-        require(
-            decreaseSupplyConfirmations[index].length >= owners().length,
-            "Transaction not confirmed!"
-        );
-
-        decreaseSupplyRemoveTransactionExecute(index);
-        decreaseSupply(decreaseSupplyTransactions[index].decrease);
-        return true;
-    }
-
-    /**
-     * @dev Delete decrease supply transaction by index
-     *
-     * - `index` index of transaction.
-     */
-    function decreaseSupplyRemoveTransaction(uint256 index)
-        external
-        payable
-        onlyOwners
-        returns (bool b)
-    {
-        require(
-            decreaseSupplyConfirmations[index].length >= 0,
-            "Transaction not confirmed!"
-        );
-
-        return decreaseSupplyRemoveTransactionExecute(index);
-    }
-
-    /**
-     * @dev Delete decrease supply transaction by index
-     *
-     * - `index` index of transaction.
-     */
-    function decreaseSupplyRemoveTransactionExecute(uint256 index)
-        internal
-        onlyOwners
-        returns (bool b)
-    {
-        TransactionDecreaseSupply memory t = decreaseSupplyTransactions[index];
-
-        require(t.executed == false, "Transaction has been executed!");
-
-        decreaseSupplyTransactions[index].executed = true;
-
-        for (
-            uint256 i = 0;
-            i < nonConfirmedDecreaseSupplyTransactions.length;
-            i++
-        ) {
-            TransactionDecreaseSupply
-                memory tr = nonConfirmedDecreaseSupplyTransactions[i];
-            if (tr.index == index) {
-                nonConfirmedDecreaseSupplyTransactions[
-                    i
-                ] = nonConfirmedDecreaseSupplyTransactions[
-                    nonConfirmedDecreaseSupplyTransactions.length - 1
-                ];
-                nonConfirmedDecreaseSupplyTransactions.pop();
-                break;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * @dev Hook that is called before any transfer of tokens. This includes
-     * minting and burning.
-     *
-     * Calling conditions:
-     *
-     * - when `from` and `to` are both non-zero, `amount` of ``from``'s tokens
-     * will be to transferred to `to`.
-     * - when `from` is zero, `amount` tokens will be minted for `to`.
-     * - when `to` is zero, `amount` of ``from``'s tokens will be burned.
-     * - `from` and `to` are never both zero.
-     *
-     * To learn more about hooks, head to xref:ROOT:extending-contracts.adoc#using-hooks[Using Hooks].
-     */
-    function _beforeTokenTransfer(
-        address from,
-        address to,
-        uint256 amount
-    ) internal virtual {}
-
-    /**
-     * @dev Destroys `amount` tokens from `account`, reducing the
-     * total supply.
-     *
-     * Emits a {Transfer} event with `to` set to the zero address.
-     *
-     * Requirements
-     *
-     * - `account` cannot be the zero address.
-     * - `account` must have at least `amount` tokens.
-     */
     function _burn(address account, uint256 amount) internal virtual {
         require(account != address(0), "ERC20: burn from the zero address");
-
-        _beforeTokenTransfer(account, address(0), amount);
 
         _balances[account] = _balances[account].sub(amount);
         _totalSupply = _totalSupply.sub(amount);
         emit Transfer(account, address(0), amount);
     }
+    
 }
