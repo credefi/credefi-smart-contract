@@ -1,0 +1,14 @@
+{
+  "name": "credefi-contract",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/credefi/credefi-smart-contract"
+  },
+  "contributors": [],
+  "scripts": { },
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.4.0"
+  }
+}
